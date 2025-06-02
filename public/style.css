@@ -1,0 +1,68 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    background-color: #f5f5f5;
+    margin-bottom: 80px; /* Ensure content doesn’t get hidden behind the fixed bar */
+  }
+  
+  h1, h2 {
+    text-align: center;
+  }
+  
+  #mapping-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+  }
+  
+  #mapping-table th,
+  #mapping-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: center;
+  }
+  
+  #mapping-table th {
+    background-color: lightslategray;
+    color: white;
+  }
+  
+  .active-program {
+    background-color: #f28b82;
+  }
+  
+  .active-preview {
+    background-color: #a7f3d0;
+  }
+  
+  #debug-window {
+    height: 200px;
+    overflow-y: scroll;
+    border: 1px solid #ddd;
+    padding: 10px;
+    background-color: #fff;
+  }
+
+  /* Fixed state bar as a 6-column grid */
+  #state-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background-color: #f9f9f9;
+    border-top: 1px solid #ccc;
+    padding: 10px;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    align-items: center;
+    font-size: 18px;
+    z-index: 1000;
+  }
+  #state-bar div {
+    padding: 5px 10px;
+    border-radius: 4px;
+    background-color: white;
+    text-align: left;
+    transition: background-color 1s, color 1s;
+  }
+  

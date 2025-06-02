@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ATEM Co-Pilot Mapping and Switcher State</title>
+  <style>
+    
+    
+  </style>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>ATEM Co-Pilot Mapping</h1>
+  <div id="grid-container">
+    <table id="mapping-table">
+      <thead>
+        <tr>
+          <th>Input Name</th>
+          <th>ME2</th>
+          <th>AUX1</th>
+          <th>AUX2</th>
+          <th>AUX3</th>
+          <th>AUX4</th>
+          <th>Delete</th>
+        </tr>
+      </thead>
+      <tbody id="mapping-body">
+        <!-- Mapping rows inserted here -->
+      </tbody>
+    </table>
+  </div>
+  <div id="add-mapping-container">
+    <select id="add-mapping-select">
+      <!-- Options for unmapped inputs -->
+    </select>
+    <button id="add-mapping-btn">Add</button>
+  </div>
+  <hr>
+  <input type="text" id="filter-input" placeholder="Filter logs">
+  <div id="debug-window"></div>
+  
+  <!-- Fixed state bar as grid -->
+  <div id="state-bar">
+    <div id="state-me1">ME1: -</div>
+    <div id="state-me2">ME2: -</div>
+    <div id="state-aux1">AUX1: -</div>
+    <div id="state-aux2">AUX2: -</div>
+    <div id="state-aux3">AUX3: -</div>
+    <div id="state-aux4">AUX4: -</div>
+  </div>
+  
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    var inputsData  = {};
+    var mappingData = {};
+
+    // Store previous AUX values to detect changes
+    var prevAuxValues = {
+      AUX1: null,
+      AUX2: null,
+      AUX3: null,
+      AUX4: null
+    };
+
+    function fetchInputs() {
+      fetch('/api/inputs')
+        .then(function(response) { return response.json(); })
+        .then(function(data) { 
+          inputsData = data; 
+          renderTable(); 
+        })
+        .catch(function(error) { console.error('Error fetching inputs:', error); });
+    }
+
+    function fetchMapping() {
+      fetch('/api/mapping')
+        .then(function(response) { return response.json(); })
+        .then(function(data) { 
+          mappingData = data; 
+          renderTable(); 
+        })
+        .catch(function(error) { console.error('Error fetching mapping:', error); });
+    }
+
+    function renderTable() {
+      var tbody = document.getElementById('mapping-body');
+      tbody.innerHTML = '';
+      for (var input in mappingData) {
+        if (mappingData.hasOwnProperty(input)) {
+          var row = document.createElement('tr');
+          row.setAttribute('data-input', input);
+          var nameCell = document.createElement('td');
+          nameCell.textContent = inputsData[input] || ('Input ' + input);
+          row.appendChild(nameCell);
+          var channels = ['ME2', 'AUX1', 'AUX2', 'AUX3', 'AUX4'];
+          for (var i = 0; i < channels.length; i++) {
+            var cell = document.createElement('td');
+            var select = document.createElement('select');
+            select.setAttribute('data-channel', channels[i]);
+            select.setAttribute('data-input', input);
+            var noneOpt = document.createElement('option');
+            noneOpt.value = '';
+            noneOpt.textContent = 'None';
+            select.appendChild(noneOpt);
+            for (var key in inputsData) {
+              if (inputsData.hasOwnProperty(key)) {
+                var option = document.createElement('option');
+                option.value = key;
+                option.textContent = inputsData[key];
+                select.appendChild(option);
+              }
+            }
+            if (mappingData[input][channels[i]]) {
+              select.value = mappingData[input][channels[i]];
+            } else {
+              select.value = '';
+            }
+            select.addEventListener('change', function() {
+              var inp  = this.getAttribute('data-input');
+              var chan = this.getAttribute('data-channel');
+              var val  = this.value;
+              updateMapping(inp, chan, val);
+            });
+            cell.appendChild(select);
+            row.appendChild(cell);
+          }
+          var deleteCell = document.createElement('td');
+          var deleteBtn  = document.createElement('button');
+          deleteBtn.textContent = 'Delete';
+          deleteBtn.addEventListener('click', function() {
+            var inp = this.parentNode.parentNode.getAttribute('data-input');
+            deleteMapping(inp);
+          });
+          deleteCell.appendChild(deleteBtn);
+          row.appendChild(deleteCell);
+          tbody.appendChild(row);
+        }
+      }
+      renderAddMapping();
+    }
+
+    function renderAddMapping() {
+      var select = document.getElementById('add-mapping-select');
+      select.innerHTML = '';
+      for (var key in inputsData) {
+        if (inputsData.hasOwnProperty(key) && !mappingData.hasOwnProperty(key)) {
+          var option = document.createElement('option');
+          option.value = key;
+          option.textContent = inputsData[key];
+          select.appendChild(option);
+        }
+      }
+    }
+
+    function deleteMapping(input) {
+      fetch('/api/mapping/' + encodeURIComponent(input), { method: 'DELETE' })
+      .then(function(response) { return response.json(); })
+      .then(function(data) {
+        if (data.success) {
+          delete mappingData[input];
+          renderTable();
+        } else {
+          console.error('Delete failed:', data.error);
+        }
+      })
+      .catch(function(error) { console.error('Error deleting mapping:', error); });
+    }
+
+    document.getElementById('add-mapping-btn').addEventListener('click', function() {
+      var select = document.getElementById('add-mapping-select');
+      var selected = select.value;
+      if (selected) {
+        mappingData[selected] = { ME2: '', AUX1: '', AUX2: '', AUX3: '', AUX4: '' };
+        updateMapping(selected);
+      }
+    });
+
+    function updateMapping(input, channel, value) {
+      if (!mappingData[input]) {
+        mappingData[input] = {};
+      }
+      if (channel) {
+        mappingData[input][channel] = value;
+      }
+      var payload = { input: input, mapping: mappingData[input] };
+      fetch('/api/mapping', {
+        method  : 'POST',
+        headers : { 'Content-Type': 'application/json' },
+        body    : JSON.stringify(payload)
+      })
+      .then(function(response) { return response.json(); })
+      .then(function(data) {
+        console.log('Mapping updated:', data);
+        renderTable();
+      })
+      .catch(function(error) { console.error('Error updating mapping:', error); });
+    }
+
+    var socket = io();
+    socket.on('log', function(msg) {
+      var debugWindow = document.getElementById('debug-window');
+      var filterText  = document.getElementById('filter-input').value;
+      if (filterText && msg.indexOf(filterText) === -1) return;
+      var p = document.createElement('p');
+      p.textContent = msg;
+      debugWindow.appendChild(p);
+      debugWindow.scrollTop = debugWindow.scrollHeight;
+    });
+
+    // Function to update row highlighting based on current state
+    function updateRowHighlighting(state) {
+      if (!state || !inputsData) return; // Don't proceed if we don't have both state and inputs
+      
+      var rows = document.querySelectorAll('#mapping-body tr');
+      for (var i = 0; i < rows.length; i++) {
+        rows[i].classList.remove('active-program');
+        rows[i].classList.remove('active-preview');
+        var inp = rows[i].getAttribute('data-input');
+        if (state["ME1-Program"] == inp) {
+          rows[i].classList.add('active-program');
+        }
+        if (state["ME1-Preview"] == inp) {
+          rows[i].classList.add('active-preview');
+        }
+      }
+    }
+
+    // Function to update the fixed state bar with names instead of numbers
+    function updateStateBar(state) {
+      if (!state || !inputsData) return; // Don't proceed if we don't have both state and inputs
+      
+      // For ME1 and ME2, use inputsData to display the name
+      var me1 = state["ME1-Program"];
+      var me2 = state["ME2-Program"];
+      var stateMe1 = document.getElementById("state-me1");
+      var stateMe2 = document.getElementById("state-me2");
+      var me1Name = inputsData[me1] ? inputsData[me1] : me1;
+      var me2Name = inputsData[me2] ? inputsData[me2] : me2;
+      stateMe1.textContent = "ME1: " + me1Name;
+      stateMe2.textContent = "ME2: " + me2Name;
+      
+      // Color coding: set ME2 background to blue if ME2 differs from ME1
+      if (me1 !== me2) {
+        stateMe2.style.backgroundColor = "blue";
+        stateMe2.style.color = "white";
+      } else {
+        stateMe2.style.backgroundColor = "white";
+        stateMe2.style.color = "black";
+      }
+      
+      // Update AUX channels with flash effect when their value changes, showing names
+      ["AUX1", "AUX2", "AUX3", "AUX4"].forEach(function(aux) {
+        var auxElem = document.getElementById("state-" + aux.toLowerCase());
+        var newValue = state[aux];
+        var auxName = inputsData[newValue] ? inputsData[newValue] : newValue;
+        auxElem.textContent = aux + ": " + auxName;
+        if (prevAuxValues[aux] !== null && prevAuxValues[aux] !== newValue) {
+          // Flash red
+          auxElem.style.backgroundColor = "red";
+          auxElem.style.color = "white";
+          // After 5 seconds, fade back to white
+          setTimeout(function() {
+            auxElem.style.transition = "background-color 1s, color 1s";
+            auxElem.style.backgroundColor = "white";
+            auxElem.style.color = "black";
+          }, 5000);
+        }
+        prevAuxValues[aux] = newValue;
+      });
+    }
+
+    socket.on('state', function(state) {
+      console.log('state:', state);
+      var rows = document.querySelectorAll('#mapping-body tr');
+      for (var i = 0; i < rows.length; i++) {
+        rows[i].classList.remove('active-program');
+        rows[i].classList.remove('active-preview');
+        var inp = rows[i].getAttribute('data-input');
+        if (state["ME1-Program"] == inp) {
+          rows[i].classList.add('active-program');
+        }
+        if (state["ME1-Preview"] == inp) {
+          rows[i].classList.add('active-preview');
+        }
+      }
+      // Update the fixed state bar with the new state
+      updateStateBar(state);
+    });
+
+    document.getElementById('filter-input').addEventListener('input', function() {
+      var debugWindow = document.getElementById('debug-window');
+      var paragraphs = debugWindow.getElementsByTagName('p');
+      var filterText = this.value.toLowerCase();
+      for (var i = 0; i < paragraphs.length; i++) {
+        var p = paragraphs[i];
+        p.style.display = (p.textContent.toLowerCase().indexOf(filterText) !== -1) ? 'block' : 'none';
+      }
+    });
+
+    fetchInputs();
+    fetchMapping();
+  </script>
+</body>
+</html>
