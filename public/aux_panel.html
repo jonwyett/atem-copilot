@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUX Live Control Panel - ATEM Co-Pilot</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #ffffff;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .main-container {
+            display: flex;
+            height: 100vh;
+            gap: 2px;
+        }
+
+        .aux-panel {
+            flex: 1;
+            background: linear-gradient(180deg, #2a2a2a 0%, #1e1e1e 100%);
+            border: 1px solid #404040;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .aux-panel.edit-mode {
+            background: linear-gradient(180deg, #2a2a3a 0%, #1e1e2e 100%);
+            border-color: #4040ff;
+        }
+
+        .aux-header {
+            background: linear-gradient(90deg, #333333 0%, #404040 100%);
+            padding: 15px 20px;
+            border-bottom: 2px solid #555;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            min-height: 80px;
+        }
+
+        .aux-panel.edit-mode .aux-header {
+            background: linear-gradient(90deg, #333344 0%, #404055 100%);
+        }
+
+        /* Sync indicator backgrounds */
+        .aux-header.sync-primary-red {
+            background: linear-gradient(90deg, #cc3333 0%, #aa2222 100%) !important;
+        }
+
+        .aux-header.sync-follower-red {
+            background: linear-gradient(90deg, #ff6666 0%, #ee4444 100%) !important;
+        }
+
+        .aux-header.sync-primary-orange {
+            background: linear-gradient(90deg, #cc6633 0%, #aa4422 100%) !important;
+        }
+
+        .aux-header.sync-follower-orange {
+            background: linear-gradient(90deg, #ff9966 0%, #ee7744 100%) !important;
+        }
+
+        .aux-title {
+            font-size: 28px;
+            font-weight: bold;
+            color: #ffffff;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .aux-status {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+
+        .status-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 20px;
+            font-weight: bold;
+            border: 2px solid transparent;
+            position: relative;
+        }
+
+        .lock-icon {
+            background: linear-gradient(135deg, #666666 0%, #888888 100%);
+            color: #ffffff;
+        }
+
+        .lock-icon.locked {
+            background: linear-gradient(135deg, #ffc107 0%, #ffb300 100%);
+            color: #000000;
+            border-color: #ff8f00;
+            box-shadow: 0 0 15px rgba(255, 193, 7, 0.5);
+        }
+
+        .edit-icon {
+            background: linear-gradient(135deg, #666666 0%, #888888 100%);
+            color: #ffffff;
+        }
+
+        .edit-icon:hover, .lock-icon:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .edit-icon.active {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            border-color: #004080;
+            box-shadow: 0 0 15px rgba(0, 123, 255, 0.5);
+        }
+
+        .aux-content {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .live-mode-content .input-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 15px;
+            height: 100%;
+        }
+
+        .input-button {
+            background: linear-gradient(135deg, #404040 0%, #2a2a2a 100%);
+            border: 3px solid #606060;
+            color: #ffffff;
+            border-radius: 12px;
+            padding: 20px 15px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 80px;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.7);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .input-button:hover {
+            background: linear-gradient(135deg, #505050 0%, #3a3a3a 100%);
+            border-color: #808080;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+        }
+
+        .input-button.active {
+            background: linear-gradient(135deg, #00ff00 0%, #00cc00 100%);
+            border-color: #00aa00;
+            color: #000000;
+            box-shadow: 0 0 25px rgba(0, 255, 0, 0.6);
+            text-shadow: none;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 25px rgba(0, 255, 0, 0.6); }
+            50% { box-shadow: 0 0 35px rgba(0, 255, 0, 0.9); }
+        }
+
+        .input-icon-name {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            height: 100%;
+        }
+
+        .input-icon {
+            font-size: 24px;
+            line-height: 1;
+        }
+
+        .input-button .input-name {
+            font-size: 14px;
+            font-weight: bold;
+            text-align: center;
+            line-height: 1.2;
+        }
+
+        /* Edit Mode Styles */
+        .edit-mode-content {
+            display: none;
+        }
+
+        .aux-panel.edit-mode .live-mode-content {
+            display: none;
+        }
+
+        .aux-panel.edit-mode .edit-mode-content {
+            display: block;
+        }
+
+        .edit-section {
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #404040;
+        }
+
+        .edit-section h3 {
+            color: #ffffff;
+            margin-bottom: 15px;
+            font-size: 20px;
+            border-bottom: 2px solid #4040ff;
+            padding-bottom: 8px;
+        }
+
+        .inputs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .input-checkbox-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid #404040;
+        }
+
+        .input-checkbox-item:hover {
+            background: rgba(255,255,255,0.1);
+            border-color: #606060;
+        }
+
+        .input-checkbox-item.selected {
+            background: rgba(0, 123, 255, 0.2);
+            border-color: #007bff;
+        }
+
+        .input-checkbox {
+            margin-right: 10px;
+            transform: scale(1.2);
+        }
+
+        .sync-config {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .sync-config label {
+            font-weight: bold;
+            color: #ffffff;
+            min-width: 120px;
+        }
+
+        .sync-select {
+            flex: 1;
+            padding: 10px;
+            background: #2a2a2a;
+            color: #ffffff;
+            border: 2px solid #404040;
+            border-radius: 6px;
+            font-size: 16px;
+        }
+
+        .sync-select:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+
+        .name-config {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .name-config label {
+            font-weight: bold;
+            color: #ffffff;
+            min-width: 120px;
+        }
+
+        .name-input {
+            flex: 1;
+            padding: 10px;
+            background: #2a2a2a;
+            color: #ffffff;
+            border: 2px solid #404040;
+            border-radius: 6px;
+            font-size: 16px;
+        }
+
+        .name-input:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+
+        .save-button {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: #ffffff;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            transition: all 0.2s ease;
+        }
+
+        .save-button:hover {
+            background: linear-gradient(135deg, #218838 0%, #1ca085 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+        }
+
+        /* Connection Status */
+        .connection-status {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-weight: bold;
+            font-size: 14px;
+            z-index: 1000;
+            transition: all 0.3s ease;
+            opacity: 1;
+        }
+
+        .connection-status.fade-out {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .connection-status.connected {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: #ffffff;
+        }
+
+        .connection-status.disconnected {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: #ffffff;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .aux-title {
+                font-size: 22px;
+            }
+            
+            .aux-header {
+                padding: 10px 15px;
+                min-height: 60px;
+            }
+            
+            .status-icon {
+                width: 40px;
+                height: 40px;
+                font-size: 16px;
+            }
+            
+            .input-button {
+                min-height: 60px;
+                padding: 15px 10px;
+                font-size: 16px;
+            }
+            
+            .input-button .input-id {
+                font-size: 20px;
+            }
+        }
+
+        /* Loading Animation */
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Tooltips */
+        .tooltip {
+            position: relative;
+        }
+
+        .tooltip::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            z-index: 1000;
+        }
+
+        .tooltip:hover::after {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="connection-status" id="connection-status">
+        <span class="loading-spinner"></span> Connecting...
+    </div>
+
+    <div class="main-container">
+        <!-- AUX 1 Panel -->
+        <div class="aux-panel" id="aux1-panel" data-aux-id="AUX1">
+            <div class="aux-header">
+                <div class="aux-title" id="aux1-title">AUX 1</div>
+                <div class="aux-status">
+                    <div class="status-icon lock-icon tooltip" id="aux1-lock" data-tooltip="Toggle Lock">🔓</div>
+                    <div class="status-icon edit-icon tooltip" id="aux1-edit" data-tooltip="Edit Settings">⚙️</div>
+                </div>
+            </div>
+            <div class="aux-content">
+                <div class="live-mode-content">
+                    <div class="input-grid" id="aux1-input-grid"></div>
+                </div>
+                <div class="edit-mode-content">
+                    <div class="edit-section">
+                        <h3>AUX Name</h3>
+                        <div class="name-config">
+                            <label>Display Name:</label>
+                            <input type="text" class="name-input" id="aux1-name-input" placeholder="Enter AUX name...">
+                        </div>
+                    </div>
+                    <div class="edit-section">
+                        <h3>Configure Available Inputs</h3>
+                        <div class="inputs-grid" id="aux1-inputs-config"></div>
+                    </div>
+                    <div class="edit-section">
+                        <h3>Sync Configuration</h3>
+                        <div class="sync-config">
+                            <label>Follow AUX:</label>
+                            <select class="sync-select" id="aux1-sync-select">
+                                <option value="">None</option>
+                                <option value="AUX2">AUX 2</option>
+                                <option value="AUX3">AUX 3</option>
+                                <option value="AUX4">AUX 4</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="save-button" id="aux1-save">Save & Return to Live Mode</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- AUX 2 Panel -->
+        <div class="aux-panel" id="aux2-panel" data-aux-id="AUX2">
+            <div class="aux-header">
+                <div class="aux-title" id="aux2-title">AUX 2</div>
+                <div class="aux-status">
+                    <div class="status-icon lock-icon tooltip" id="aux2-lock" data-tooltip="Toggle Lock">🔓</div>
+                    <div class="status-icon edit-icon tooltip" id="aux2-edit" data-tooltip="Edit Settings">⚙️</div>
+                </div>
+            </div>
+            <div class="aux-content">
+                <div class="live-mode-content">
+                    <div class="input-grid" id="aux2-input-grid"></div>
+                </div>
+                <div class="edit-mode-content">
+                    <div class="edit-section">
+                        <h3>AUX Name</h3>
+                        <div class="name-config">
+                            <label>Display Name:</label>
+                            <input type="text" class="name-input" id="aux2-name-input" placeholder="Enter AUX name...">
+                        </div>
+                    </div>
+                    <div class="edit-section">
+                        <h3>Configure Available Inputs</h3>
+                        <div class="inputs-grid" id="aux2-inputs-config"></div>
+                    </div>
+                    <div class="edit-section">
+                        <h3>Sync Configuration</h3>
+                        <div class="sync-config">
+                            <label>Follow AUX:</label>
+                            <select class="sync-select" id="aux2-sync-select">
+                                <option value="">None</option>
+                                <option value="AUX1">AUX 1</option>
+                                <option value="AUX3">AUX 3</option>
+                                <option value="AUX4">AUX 4</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="save-button" id="aux2-save">Save & Return to Live Mode</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- AUX 3 Panel -->
+        <div class="aux-panel" id="aux3-panel" data-aux-id="AUX3">
+            <div class="aux-header">
+                <div class="aux-title" id="aux3-title">AUX 3</div>
+                <div class="aux-status">
+                    <div class="status-icon lock-icon tooltip" id="aux3-lock" data-tooltip="Toggle Lock">🔓</div>
+                    <div class="status-icon edit-icon tooltip" id="aux3-edit" data-tooltip="Edit Settings">⚙️</div>
+                </div>
+            </div>
+            <div class="aux-content">
+                <div class="live-mode-content">
+                    <div class="input-grid" id="aux3-input-grid"></div>
+                </div>
+                <div class="edit-mode-content">
+                    <div class="edit-section">
+                        <h3>AUX Name</h3>
+                        <div class="name-config">
+                            <label>Display Name:</label>
+                            <input type="text" class="name-input" id="aux3-name-input" placeholder="Enter AUX name...">
+                        </div>
+                    </div>
+                    <div class="edit-section">
+                        <h3>Configure Available Inputs</h3>
+                        <div class="inputs-grid" id="aux3-inputs-config"></div>
+                    </div>
+                    <div class="edit-section">
+                        <h3>Sync Configuration</h3>
+                        <div class="sync-config">
+                            <label>Follow AUX:</label>
+                            <select class="sync-select" id="aux3-sync-select">
+                                <option value="">None</option>
+                                <option value="AUX1">AUX 1</option>
+                                <option value="AUX2">AUX 2</option>
+                                <option value="AUX4">AUX 4</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="save-button" id="aux3-save">Save & Return to Live Mode</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- AUX 4 Panel -->
+        <div class="aux-panel" id="aux4-panel" data-aux-id="AUX4">
+            <div class="aux-header">
+                <div class="aux-title" id="aux4-title">AUX 4</div>
+                <div class="aux-status">
+                    <div class="status-icon lock-icon tooltip" id="aux4-lock" data-tooltip="Toggle Lock">🔓</div>
+                    <div class="status-icon edit-icon tooltip" id="aux4-edit" data-tooltip="Edit Settings">⚙️</div>
+                </div>
+            </div>
+            <div class="aux-content">
+                <div class="live-mode-content">
+                    <div class="input-grid" id="aux4-input-grid"></div>
+                </div>
+                <div class="edit-mode-content">
+                    <div class="edit-section">
+                        <h3>AUX Name</h3>
+                        <div class="name-config">
+                            <label>Display Name:</label>
+                            <input type="text" class="name-input" id="aux4-name-input" placeholder="Enter AUX name...">
+                        </div>
+                    </div>
+                    <div class="edit-section">
+                        <h3>Configure Available Inputs</h3>
+                        <div class="inputs-grid" id="aux4-inputs-config"></div>
+                    </div>
+                    <div class="edit-section">
+                        <h3>Sync Configuration</h3>
+                        <div class="sync-config">
+                            <label>Follow AUX:</label>
+                            <select class="sync-select" id="aux4-sync-select">
+                                <option value="">None</option>
+                                <option value="AUX1">AUX 1</option>
+                                <option value="AUX2">AUX 2</option>
+                                <option value="AUX3">AUX 3</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="save-button" id="aux4-save">Save & Return to Live Mode</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global application state
+        let socket;
+        let currentState = {};
+        let auxPalettes = {};
+        let atemInputs = {};
+        let currentEditAux = null;
+
+        // Unicode icon mapping for input names
+        const inputIconMap = {
+            // Camera inputs
+            'Briefer': '👨‍💼',
+            'Wide': '📷',
+            'Zoom': '🔍',
+            'Moderator': '🎤',
+            'Audience': '👥',
+            'AutoCue': '📖',
+            
+            // Technical inputs
+            'PC': '💻',
+            'UNUSED': '❌',
+            'Black': '⚫',
+            'Color Bars': '📊',
+            'SuperSource': '🎬',
+            
+            // Graphics and media
+            'Bug': '🐛',
+            'Logo': '🏷️',
+            'Color 1': '🎨',
+            'Color 2': '🎨',
+            
+            // System outputs
+            'ME 1 PGM': '🔴',
+            'ME 1 PVW': '🟡',
+            'ME 2 PGM': '🔴',
+            'ME 2 PVW': '🟡',
+            
+            // Generic camera fallbacks (for Camera 9-20 etc)
+            'Camera': '📹'
+        };
+
+        // Function to get icon for input name
+        function getInputIcon(inputName) {
+            // Direct match first
+            if (inputIconMap[inputName]) {
+                return inputIconMap[inputName];
+            }
+            
+            // Pattern matching for camera inputs
+            if (inputName && inputName.toLowerCase().includes('camera')) {
+                return inputIconMap['Camera'];
+            }
+            
+            // Pattern matching for color inputs
+            if (inputName && inputName.toLowerCase().includes('color')) {
+                return inputIconMap['Color 1'];
+            }
+            
+            // No icon found
+            return '';
+        }
+
+        // Initialize the application
+        function initializeApp() {
+            console.log('Initializing AUX Live Control Panel...');
+            
+            // Connect to Socket.IO server
+            socket = io();
+            
+            // Setup event listeners
+            setupWebSocketListeners();
+            setupUIEventListeners();
+            
+            console.log('Application initialized successfully');
+        }
+
+        // Setup WebSocket event listeners
+        function setupWebSocketListeners() {
+            socket.on('connect', function() {
+                console.log('Connected to server');
+                updateConnectionStatus(true);
+            });
+
+            socket.on('disconnect', function() {
+                console.log('Disconnected from server');
+                updateConnectionStatus(false);
+            });
+
+            socket.on('state', function(state) {
+                currentState = state;
+                updateActiveButtons();
+            });
+
+            socket.on('inputs', function(inputs) {
+                atemInputs = inputs;
+                console.log('ATEM inputs received:', inputs);
+                renderAllPanels();
+            });
+
+            socket.on('auxPalettes', function(palettes) {
+                auxPalettes = palettes;
+                console.log('AUX palettes received:', palettes);
+                updatePanelTitles();
+                updateLockStatuses();
+                updateSyncIndicators();
+                renderAllPanels();
+            });
+
+            socket.on('log', function(message) {
+                console.log('Server log:', message);
+            });
+        }
+
+        // Setup UI event listeners
+        function setupUIEventListeners() {
+            ['AUX1', 'AUX2', 'AUX3', 'AUX4'].forEach(auxId => {
+                const auxNum = auxId.charAt(3);
+                
+                // Lock toggle
+                document.getElementById(`aux${auxNum}-lock`).addEventListener('click', () => {
+                    toggleLockStatus(auxId);
+                });
+                
+                // Edit mode toggle
+                document.getElementById(`aux${auxNum}-edit`).addEventListener('click', () => {
+                    toggleEditMode(auxId);
+                });
+                
+                // Save button
+                document.getElementById(`aux${auxNum}-save`).addEventListener('click', () => {
+                    saveEditChanges(auxId);
+                });
+            });
+        }
+
+        // Update connection status
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connection-status');
+            if (connected) {
+                statusEl.innerHTML = '✓ Connected';
+                statusEl.className = 'connection-status connected';
+                
+                // Fade out after 3 seconds when connected
+                setTimeout(() => {
+                    statusEl.classList.add('fade-out');
+                }, 3000);
+            } else {
+                statusEl.innerHTML = '✗ Disconnected';
+                statusEl.className = 'connection-status disconnected';
+                // Keep disconnected status visible (remove fade-out class)
+                statusEl.classList.remove('fade-out');
+            }
+        }
+
+        // Update panel titles with names from palettes
+        function updatePanelTitles() {
+            ['AUX1', 'AUX2', 'AUX3', 'AUX4'].forEach(auxId => {
+                const auxNum = auxId.charAt(3);
+                const titleEl = document.getElementById(`aux${auxNum}-title`);
+                if (auxPalettes[auxId] && auxPalettes[auxId].name) {
+                    titleEl.textContent = auxPalettes[auxId].name;
+                }
+            });
+        }
+
+        // Update lock status displays
+        function updateLockStatuses() {
+            ['AUX1', 'AUX2', 'AUX3', 'AUX4'].forEach(auxId => {
+                const auxNum = auxId.charAt(3);
+                const lockEl = document.getElementById(`aux${auxNum}-lock`);
+                const isLocked = auxPalettes[auxId] && auxPalettes[auxId].isLocked;
+                
+                if (isLocked) {
+                    lockEl.textContent = '🔒';
+                    lockEl.classList.add('locked');
+                    lockEl.setAttribute('data-tooltip', 'Unlock AUX');
+                } else {
+                    lockEl.textContent = '🔓';
+                    lockEl.classList.remove('locked');
+                    lockEl.setAttribute('data-tooltip', 'Lock AUX');
+                }
+            });
+        }
+
+        // Update sync status indicators
+        function updateSyncIndicators() {
+            const auxIds = ['AUX1', 'AUX2', 'AUX3', 'AUX4'];
+            
+            // Clear all sync classes first
+            auxIds.forEach(auxId => {
+                const auxNum = auxId.charAt(3);
+                const headerEl = document.querySelector(`#aux${auxNum}-panel .aux-header`);
+                headerEl.classList.remove('sync-primary-red', 'sync-follower-red', 'sync-primary-orange', 'sync-follower-orange');
+            });
+            
+            // Find sync relationships
+            const syncGroups = [];
+            
+            auxIds.forEach(auxId => {
+                const palette = auxPalettes[auxId];
+                if (!palette) return;
+                
+                // Check if this AUX has followers
+                const followers = auxIds.filter(otherId => {
+                    const otherPalette = auxPalettes[otherId];
+                    return otherPalette && otherPalette.syncTarget === auxId;
+                });
+                
+                if (followers.length > 0) {
+                    // This is a primary AUX with followers
+                    syncGroups.push({
+                        primary: auxId,
+                        followers: followers
+                    });
+                }
+            });
+            
+            // Apply sync colors
+            const colors = ['red', 'orange'];
+            syncGroups.forEach((group, index) => {
+                const color = colors[index % colors.length];
+                const primaryNum = group.primary.charAt(3);
+                const primaryHeader = document.querySelector(`#aux${primaryNum}-panel .aux-header`);
+                
+                // Set primary (darker) background
+                primaryHeader.classList.add(`sync-primary-${color}`);
+                
+                // Set follower (lighter) backgrounds
+                group.followers.forEach(followerId => {
+                    const followerNum = followerId.charAt(3);
+                    const followerHeader = document.querySelector(`#aux${followerNum}-panel .aux-header`);
+                    followerHeader.classList.add(`sync-follower-${color}`);
+                });
+            });
+        }
+
+
+        // Render all panels
+        function renderAllPanels() {
+            ['AUX1', 'AUX2', 'AUX3', 'AUX4'].forEach(auxId => {
+                renderLiveMode(auxId);
+                renderEditMode(auxId);
+            });
+        }
+
+        // Render live mode for an AUX
+        function renderLiveMode(auxId) {
+            const auxNum = auxId.charAt(3);
+            const gridEl = document.getElementById(`aux${auxNum}-input-grid`);
+            const palette = auxPalettes[auxId];
+            
+            if (!palette || !palette.inputs) {
+                gridEl.innerHTML = '<div style="text-align: center; color: #888; padding: 40px;">No inputs configured</div>';
+                return;
+            }
+            
+            gridEl.innerHTML = '';
+            
+            palette.inputs.forEach(inputId => {
+                const button = document.createElement('div');
+                button.className = 'input-button';
+                button.dataset.auxId = auxId;
+                button.dataset.inputId = inputId;
+                
+                const inputName = atemInputs[inputId] || `Input ${inputId}`;
+                const inputIcon = getInputIcon(inputName);
+                
+                button.innerHTML = `
+                    <div class="input-icon-name">
+                        ${inputIcon ? `<span class="input-icon">${inputIcon}</span>` : ''}
+                        <div class="input-name">${inputName}</div>
+                    </div>
+                `;
+                
+                button.addEventListener('click', () => {
+                    setAuxInput(auxId, inputId);
+                });
+                
+                gridEl.appendChild(button);
+            });
+            
+            updateActiveButtons();
+        }
+
+        // Render edit mode for an AUX
+        function renderEditMode(auxId) {
+            const auxNum = auxId.charAt(3);
+            const nameEl = document.getElementById(`aux${auxNum}-name-input`);
+            const configEl = document.getElementById(`aux${auxNum}-inputs-config`);
+            const syncEl = document.getElementById(`aux${auxNum}-sync-select`);
+            const palette = auxPalettes[auxId];
+            
+            if (!palette) return;
+            
+            // Set name input value
+            nameEl.value = palette.name || '';
+            
+            // Render input checkboxes
+            configEl.innerHTML = '';
+            
+            // Standard inputs 1-20
+            for (let i = 1; i <= 20; i++) {
+                const item = document.createElement('div');
+                item.className = 'input-checkbox-item';
+                if (palette.inputs && palette.inputs.includes(i)) {
+                    item.classList.add('selected');
+                }
+                
+                const inputName = atemInputs[i] || `Input ${i}`;
+                item.innerHTML = `
+                    <input type="checkbox" class="input-checkbox" ${palette.inputs && palette.inputs.includes(i) ? 'checked' : ''}>
+                    <span>${i}: ${inputName}</span>
+                `;
+                
+                item.addEventListener('click', function(e) {
+                    if (e.target.type !== 'checkbox') {
+                        const checkbox = this.querySelector('.input-checkbox');
+                        checkbox.checked = !checkbox.checked;
+                    }
+                    this.classList.toggle('selected', this.querySelector('.input-checkbox').checked);
+                });
+                
+                configEl.appendChild(item);
+            }
+            
+            // Additional ATEM system inputs
+            const additionalInputs = [1000, 2001, 2002, 3010, 3020];
+            additionalInputs.forEach(inputId => {
+                if (atemInputs[inputId]) { // Only show if input exists
+                    const item = document.createElement('div');
+                    item.className = 'input-checkbox-item';
+                    if (palette.inputs && palette.inputs.includes(inputId)) {
+                        item.classList.add('selected');
+                    }
+                    
+                    const inputName = atemInputs[inputId];
+                    item.innerHTML = `
+                        <input type="checkbox" class="input-checkbox" ${palette.inputs && palette.inputs.includes(inputId) ? 'checked' : ''}>
+                        <span>${inputId}: ${inputName}</span>
+                    `;
+                    
+                    item.addEventListener('click', function(e) {
+                        if (e.target.type !== 'checkbox') {
+                            const checkbox = this.querySelector('.input-checkbox');
+                            checkbox.checked = !checkbox.checked;
+                        }
+                        this.classList.toggle('selected', this.querySelector('.input-checkbox').checked);
+                    });
+                    
+                    configEl.appendChild(item);
+                }
+            });
+            
+            // Set sync dropdown value
+            syncEl.value = palette.syncTarget || '';
+        }
+
+        // Update active button highlighting
+        function updateActiveButtons() {
+            ['AUX1', 'AUX2', 'AUX3', 'AUX4'].forEach(auxId => {
+                const auxNum = auxId.charAt(3);
+                const buttons = document.querySelectorAll(`#aux${auxNum}-input-grid .input-button`);
+                const currentInput = currentState[auxId];
+                
+                buttons.forEach(button => {
+                    button.classList.remove('active');
+                    if (parseInt(button.dataset.inputId) === currentInput) {
+                        button.classList.add('active');
+                    }
+                });
+            });
+        }
+
+        // Set AUX input
+        function setAuxInput(auxId, inputId) {
+            console.log(`Setting ${auxId} to input ${inputId}`);
+            socket.emit('setAuxInput', {
+                auxId: auxId,
+                inputId: parseInt(inputId)
+            });
+        }
+
+        // Toggle lock status
+        async function toggleLockStatus(auxId) {
+            try {
+                const response = await fetch('/api/aux_palettes');
+                const currentPalettes = await response.json();
+                
+                currentPalettes[auxId].isLocked = !currentPalettes[auxId].isLocked;
+                
+                const updateResponse = await fetch('/api/aux_palettes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentPalettes)
+                });
+                
+                if (updateResponse.ok) {
+                    auxPalettes = currentPalettes;
+                    updateLockStatuses();
+                    console.log(`${auxId} lock toggled to: ${currentPalettes[auxId].isLocked}`);
+                }
+            } catch (error) {
+                console.error('Error toggling lock:', error);
+            }
+        }
+
+        // Toggle edit mode
+        function toggleEditMode(auxId) {
+            const auxNum = auxId.charAt(3);
+            const panel = document.getElementById(`aux${auxNum}-panel`);
+            const editIcon = document.getElementById(`aux${auxNum}-edit`);
+            
+            if (panel.classList.contains('edit-mode')) {
+                exitEditMode(auxId);
+            } else {
+                enterEditMode(auxId);
+            }
+        }
+
+        // Enter edit mode
+        function enterEditMode(auxId) {
+            // Exit any other edit mode first
+            if (currentEditAux && currentEditAux !== auxId) {
+                exitEditMode(currentEditAux);
+            }
+            
+            const auxNum = auxId.charAt(3);
+            const panel = document.getElementById(`aux${auxNum}-panel`);
+            const editIcon = document.getElementById(`aux${auxNum}-edit`);
+            
+            panel.classList.add('edit-mode');
+            editIcon.classList.add('active');
+            editIcon.setAttribute('data-tooltip', 'Exit Edit Mode');
+            currentEditAux = auxId;
+            
+            renderEditMode(auxId);
+            console.log(`Entered edit mode for ${auxId}`);
+        }
+
+        // Exit edit mode
+        function exitEditMode(auxId) {
+            const auxNum = auxId.charAt(3);
+            const panel = document.getElementById(`aux${auxNum}-panel`);
+            const editIcon = document.getElementById(`aux${auxNum}-edit`);
+            
+            panel.classList.remove('edit-mode');
+            editIcon.classList.remove('active');
+            editIcon.setAttribute('data-tooltip', 'Edit Settings');
+            
+            if (currentEditAux === auxId) {
+                currentEditAux = null;
+            }
+            
+            console.log(`Exited edit mode for ${auxId}`);
+        }
+
+        // Save edit changes
+        async function saveEditChanges(auxId) {
+            try {
+                const auxNum = auxId.charAt(3);
+                const nameEl = document.getElementById(`aux${auxNum}-name-input`);
+                const configEl = document.getElementById(`aux${auxNum}-inputs-config`);
+                const syncEl = document.getElementById(`aux${auxNum}-sync-select`);
+                
+                // Get name
+                const auxName = nameEl.value.trim() || `AUX ${auxNum}`;
+                
+                // Get selected inputs
+                const selectedInputs = [];
+                configEl.querySelectorAll('.input-checkbox:checked').forEach(checkbox => {
+                    const text = checkbox.nextElementSibling.textContent;
+                    const inputId = parseInt(text.split(':')[0]);
+                    selectedInputs.push(inputId);
+                });
+                
+                // Get sync target
+                const syncTarget = syncEl.value || null;
+                
+                // Update configuration
+                const response = await fetch('/api/aux_palettes');
+                const currentPalettes = await response.json();
+                
+                currentPalettes[auxId].name = auxName;
+                currentPalettes[auxId].inputs = selectedInputs.sort((a, b) => a - b);
+                currentPalettes[auxId].syncTarget = syncTarget;
+                
+                const updateResponse = await fetch('/api/aux_palettes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentPalettes)
+                });
+                
+                if (updateResponse.ok) {
+                    auxPalettes = currentPalettes;
+                    updatePanelTitles(); // Update the title display
+                    updateSyncIndicators(); // Update sync color indicators
+                    renderLiveMode(auxId);
+                    exitEditMode(auxId);
+                    console.log(`${auxId} configuration saved with name: ${auxName}`);
+                }
+            } catch (error) {
+                console.error('Error saving configuration:', error);
+            }
+        }
+
+        // Initialize the application when DOM is ready
+        document.addEventListener('DOMContentLoaded', initializeApp);
+    </script>
+</body>
+</html>

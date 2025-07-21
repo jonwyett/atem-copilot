@@ -1,6 +1,30 @@
 {
     "AUX1": {
+        "name": "TV Left",
+        "inputs": [
+            1,
+            4,
+            5,
+            7,
+            3020
+        ],
+        "isLocked": false,
+        "syncTarget": null
+    },
+    "AUX2": {
         "name": "TV Right",
+        "inputs": [
+            1,
+            4,
+            5,
+            7,
+            3020
+        ],
+        "isLocked": false,
+        "syncTarget": null
+    },
+    "AUX3": {
+        "name": "TV Back",
         "inputs": [
             1,
             2,
@@ -8,47 +32,21 @@
             4,
             5,
             6,
-            7
+            7,
+            3020
         ],
         "isLocked": false,
-        "syncTarget": null
-    },
-    "AUX2": {
-        "name": "Lobby Monitor",
-        "inputs": [
-            1,
-            2,
-            3,
-            4,
-            5,
-            6
-        ],
-        "isLocked": false,
-        "syncTarget": "AUX1"
-    },
-    "AUX3": {
-        "name": "Recording Feed",
-        "inputs": [
-            1,
-            2,
-            3,
-            4,
-            5
-        ],
-        "isLocked": false,
-        "syncTarget": null
+        "syncTarget": "AUX2"
     },
     "AUX4": {
-        "name": "Streaming Feed",
+        "name": "Clean Feed",
         "inputs": [
             1,
             2,
-            3,
-            4,
-            5,
-            6
+            1000,
+            3020
         ],
         "isLocked": false,
-        "syncTarget": "AUX3"
+        "syncTarget": null
     }
 }
