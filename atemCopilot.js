@@ -7,7 +7,9 @@ class atemCopilot extends EventEmitter {
         super();
         this.atemIp = atemIp || '192.168.1.200';
         this.mappingFile = mappingFile || 'mapping.json';
+        this.auxPalettesFile = 'aux_palettes.json';
         this.mapping = {};
+        this.auxPalettes = {};
         this.inputs = {};
         this.currentState = {
             "ME1-Preview": 0,
@@ -50,6 +52,7 @@ class atemCopilot extends EventEmitter {
         // Handle ATEM connection
         this.atem.on('started', () => {
             this.loadMapping();
+            this.loadAuxPalettes();
             this.inputs = this.atem.getInputs();
             this.emit('log', 'Input Names:', this.inputs);
         });
@@ -72,6 +75,35 @@ class atemCopilot extends EventEmitter {
         } catch (error) {
             this.emit('error', `Error saving mapping file: ${error.message}`);
         }
+    }
+
+    loadAuxPalettes() {
+        try {
+            const data = fs.readFileSync(this.auxPalettesFile, 'utf8');
+            this.auxPalettes = JSON.parse(data);
+            this.emit('log', 'AUX palettes file loaded:', this.auxPalettes);
+        } catch (error) {
+            this.emit('error', `Error loading AUX palettes file: ${error.message}`);
+        }
+    }
+
+    saveAuxPalettes() {
+        try {
+            fs.writeFileSync(this.auxPalettesFile, JSON.stringify(this.auxPalettes, null, 4), 'utf8');
+            this.emit('log', 'AUX palettes file saved successfully.');
+        } catch (error) {
+            this.emit('error', `Error saving AUX palettes file: ${error.message}`);
+        }
+    }
+
+    updateAuxPalettes(newConfig) {
+        this.auxPalettes = newConfig;
+        this.emit('log', 'AUX palettes updated:', this.auxPalettes);
+        this.saveAuxPalettes();
+    }
+
+    getAuxPalettes() {
+        return this.auxPalettes;
     }
 
     updateMapping(newEntry) {
@@ -105,11 +137,18 @@ class atemCopilot extends EventEmitter {
                 this.emit('log', `Skipping M/E2 program update due to null or empty mapping.`);
             }
     
-            // Apply AUX settings only if they have valid values
+            // Apply AUX settings only if they have valid values and are not locked
             Object.entries(config).forEach(([key, source]) => {
                 if (key.startsWith("AUX") && source !== undefined && source !== null && source !== '') {
                     let auxIndex = parseInt(key.charAt(3), 10) - 1; // Convert to zero-based index
                     if (!isNaN(auxIndex) && auxIndex >= 0 && auxIndex < 10) {
+                        // Check if this AUX is locked
+                        const auxId = key; // e.g., "AUX1"
+                        if (this.auxPalettes[auxId] && this.auxPalettes[auxId].isLocked) {
+                            this.emit('log', `Skipping ${auxId} - it is locked for manual control`);
+                            return;
+                        }
+                        
                         this.emit('log', `Setting AUX${auxIndex} to input ${source}`);
                         this.atem.setAuxSource(source, auxIndex); // Use atem-shim method for AUX
                     }
@@ -148,7 +187,10 @@ const copilotInstance = new atemCopilot();
 module.exports = {
     updateMapping: copilotInstance.updateMapping.bind(copilotInstance),
     deleteMapping: copilotInstance.deleteMapping.bind(copilotInstance),
+    updateAuxPalettes: copilotInstance.updateAuxPalettes.bind(copilotInstance),
+    getAuxPalettes: copilotInstance.getAuxPalettes.bind(copilotInstance),
     on: copilotInstance.on.bind(copilotInstance),
     emit: copilotInstance.emit.bind(copilotInstance),
-    getCurrentState: copilotInstance.getCurrentState.bind(copilotInstance)
+    getCurrentState: copilotInstance.getCurrentState.bind(copilotInstance),
+    atem: copilotInstance.atem
 };

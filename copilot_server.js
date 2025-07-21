@@ -19,6 +19,16 @@ console.clear();
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
+// Route for the AUX test panel
+app.get('/aux-test', function(req, res) {
+  res.sendFile(__dirname + '/public/aux_test_panel.html');
+});
+
+// Route for the AUX Live Control Panel
+app.get('/aux-panel', function(req, res) {
+  res.sendFile(__dirname + '/public/aux_panel.html');
+});
+
 // Helper function to load mapping from file.
 function getMapping() {
   try {
@@ -80,6 +90,24 @@ app.delete('/api/mapping/:input', function(req, res) {
   }
 });
 
+// REST endpoint to return the AUX palettes configuration.
+app.get('/api/aux_palettes', function(req, res) {
+  var auxPalettes = atemModule.getAuxPalettes();
+  res.json(auxPalettes);
+});
+
+// REST endpoint to update AUX palettes configuration.
+// Expects JSON payload with complete aux palettes object
+app.post('/api/aux_palettes', function(req, res) {
+  var newConfig = req.body;
+  if (!newConfig) {
+    res.status(400).json({ error: 'Invalid request data' });
+    return;
+  }
+  atemModule.updateAuxPalettes(newConfig);
+  res.json({ success: true });
+});
+
 atemModule.on('log', function() {
   var args = Array.prototype.slice.call(arguments);
   if (args.length >= 2 && args[0] === 'Input Names:') {
@@ -103,6 +131,44 @@ io.on('connection', function(socket) {
   socket.emit('state', atemModule.getCurrentState());
   socket.emit('inputs', atemInputs);
   socket.emit('mapping', getMapping());
+  socket.emit('auxPalettes', atemModule.getAuxPalettes());
+  
+  // Handle manual AUX input changes from the live control panel
+  socket.on('setAuxInput', function(data) {
+    io.emit('log', 'Received setAuxInput request: ' + JSON.stringify(data));
+    
+    if (!data || !data.auxId || data.inputId === undefined) {
+      io.emit('log', 'Invalid setAuxInput data received');
+      return;
+    }
+    
+    var auxId = data.auxId; // e.g., "AUX1"
+    var inputId = data.inputId; // e.g., 2
+    var auxIndex = parseInt(auxId.charAt(3), 10) - 1; // Convert AUX1 -> 0, AUX2 -> 1, etc.
+    
+    if (isNaN(auxIndex) || auxIndex < 0 || auxIndex > 3) {
+      io.emit('log', 'Invalid AUX ID: ' + auxId);
+      return;
+    }
+    
+    io.emit('log', 'Setting ' + auxId + ' (index ' + auxIndex + ') to input ' + inputId);
+    
+    // Set the primary AUX
+    atemModule.atem.setAuxSource(inputId, auxIndex);
+    
+    // Check for any AUX that should sync with this one
+    var auxPalettes = atemModule.getAuxPalettes();
+    Object.keys(auxPalettes).forEach(function(otherAuxId) {
+      var otherConfig = auxPalettes[otherAuxId];
+      if (otherConfig.syncTarget === auxId && !otherConfig.isLocked) {
+        var otherAuxIndex = parseInt(otherAuxId.charAt(3), 10) - 1;
+        if (!isNaN(otherAuxIndex) && otherAuxIndex >= 0 && otherAuxIndex <= 3) {
+          io.emit('log', 'Syncing ' + otherAuxId + ' to follow ' + auxId + ' with input ' + inputId);
+          atemModule.atem.setAuxSource(inputId, otherAuxIndex);
+        }
+      }
+    });
+  });
   
 });
 
